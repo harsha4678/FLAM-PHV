@@ -14,6 +14,8 @@ import sys
 import sqlite3
 from db import update_job_state as db_update_job_state, get_job
 import math
+import json
+import ast
 
 SHUTDOWN = False
 
@@ -35,12 +37,23 @@ def worker_loop(worker_id, poll_interval=1.0):
                 continue
             job_id = job["id"]
             command = job["command"]
+            # Parse command if it's a JSON string
+            try:
+                cmd_obj = ast.literal_eval(command)
+                if isinstance(cmd_obj, dict):
+                    # Extract just the command value
+                    command = cmd_obj.get("command", command) # Get the command
+            except (ValueError, SyntaxError, TypeError):
+                # If not valid JSON or no command key, use as-is
+                pass
+
             print(f"[worker {worker_id}] Processing job {job_id}: {command}")
-            # run command
+            # run command 
             start = time.time()
             try:
-                res = subprocess.run(command, shell=True)
+                res = subprocess.run(command, shell=True, text=True, capture_output=True)
                 rc = res.returncode
+                err = res.stderr if res.stderr else None
             except Exception as e:
                 rc = 1
                 err = str(e)

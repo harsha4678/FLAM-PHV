@@ -47,13 +47,40 @@ def worker_start(count, foreground):
         except KeyboardInterrupt:
             print("Foreground worker stopped.")
         return
-    for i in range(count):
-        p = Process(target=worker_loop, args=(f"proc-{i+1}",), daemon=False)
-        p.start()
-        procs.append(p.pid)
-        print(f"Started worker pid={p.pid}")
-    write_pids(procs)
-    print("Workers started and PIDs saved to workers.pid")
+        
+    try:
+        for i in range(count):
+            p = Process(target=worker_loop, args=(f"proc-{i+1}",), daemon=True)  # Changed to daemon=True
+            p.start()
+            procs.append(p)
+            print(f"Started worker pid={p.pid}")
+        
+        # Save PIDs
+        write_pids([p.pid for p in procs])
+        print("Workers started and PIDs saved to workers.pid")
+        
+        # Wait for processes to complete or interrupt
+        try:
+            for p in procs:
+                p.join()
+        except KeyboardInterrupt:
+            print("\nGracefully shutting down workers...")
+            for p in procs:
+                try:
+                    p.terminate()
+                    p.join(timeout=2)  # Give each process 2 seconds to shut down
+                except:
+                    pass
+            print("Workers shutdown complete.")
+            
+    except Exception as e:
+        print(f"Error starting workers: {e}")
+        for p in procs:
+            try:
+                p.terminate()
+            except:
+                pass
+        raise
 
 @worker.command("stop")
 def worker_stop():

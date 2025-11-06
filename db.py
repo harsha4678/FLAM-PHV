@@ -2,6 +2,7 @@
 import sqlite3
 import threading
 import time
+
 from contextlib import contextmanager
 
 DB_FILE = "queuectl.db"
