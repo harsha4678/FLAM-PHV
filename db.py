@@ -15,7 +15,7 @@ def get_conn():
 
 def initialize():
     with _get_conn_cursor() as cur:
-        # jobs table
+        # Create jobs table with all columns
         cur.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
@@ -27,17 +27,34 @@ def initialize():
             updated_at TEXT NOT NULL,
             next_attempt_at REAL NOT NULL,
             locked INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT
+            last_error TEXT,
+            execution_time REAL,
+            priority INTEGER DEFAULT 0,
+            timeout_seconds INTEGER
         )""")
-        # settings table
+
+        # Create settings table
         cur.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
         )""")
-        # ensure default settings exist
+
+        # Ensure default settings exist
         cur.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('backoff_base','2')")
         cur.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('max_retries','3')")
+
+        # Check if we need to add new columns
+        cur.execute("PRAGMA table_info(jobs)")
+        columns = {row['name'] for row in cur.fetchall()}
+        
+        # Add columns if they don't exist
+        if 'execution_time' not in columns:
+            cur.execute("ALTER TABLE jobs ADD COLUMN execution_time REAL")
+        if 'priority' not in columns:
+            cur.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER DEFAULT 0")
+        if 'timeout_seconds' not in columns:
+            cur.execute("ALTER TABLE jobs ADD COLUMN timeout_seconds INTEGER")
 
 @contextmanager
 def _get_conn_cursor():
@@ -65,12 +82,16 @@ def get_setting(key, default=None):
 def insert_job(job):
     with _get_conn_cursor() as cur:
         cur.execute("""
-            INSERT INTO jobs (id, command, state, attempts, max_retries, created_at, updated_at, next_attempt_at, locked, last_error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            job["id"], job["command"], job.get("state", "pending"), job.get("attempts", 0),
-            job.get("max_retries", 3), job["created_at"], job["updated_at"], job.get("next_attempt_at", time.time()), 0, job.get("last_error")
-        ))
+            INSERT INTO jobs (
+                id, command, state, attempts, max_retries,
+                created_at, updated_at, next_attempt_at,
+                locked, last_error, priority, timeout_seconds
+            ) VALUES (
+                :id, :command, :state, :attempts, :max_retries,
+                :created_at, :updated_at, :next_attempt_at,
+                :locked, :last_error, :priority, :timeout_seconds
+            )
+        """, job)
 
 def list_jobs_by_state(state=None, limit=None):
     """List jobs filtered by state with optional limit"""
@@ -172,17 +193,3 @@ def all_metrics():
             'min_time': round(stats['min_time'] or 0, 2),
             'max_time': round(stats['max_time'] or 0, 2)
         }
-
-# Add execution_time column
-def initialize():
-    with _get_conn_cursor() as cur:
-        # ...existing initialization code...
-        
-        # Add execution_time and priority columns if they don't exist
-        cur.execute("PRAGMA table_info(jobs)")
-        columns = {row['name'] for row in cur.fetchall()}
-        
-        if 'execution_time' not in columns:
-            cur.execute("ALTER TABLE jobs ADD COLUMN execution_time REAL")
-        if 'priority' not in columns:
-            cur.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER DEFAULT 0")

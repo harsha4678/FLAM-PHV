@@ -35,7 +35,7 @@ def enqueue(json_text):
     job_id = obj.get("id", str(uuid.uuid4()))
     command = obj.get("command")
     max_retries = obj.get("max_retries", get_max_retries_default())
-    priority = obj.get("priority", 0) # Added for bonus
+    priority = int(obj.get("priority", 0)) # Added for bonus
     timeout_seconds = obj.get("timeout_seconds") # Added for bonus
 
     if not command:

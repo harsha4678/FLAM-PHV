@@ -54,6 +54,7 @@ def claim_job_for_processing(timeout_seconds=5):
         if not row:
             conn.commit()
             return None
+            
         job = dict(row)
         cur.execute(
             "UPDATE jobs SET locked = 1, state = 'processing', updated_at = ? WHERE id = ?",
@@ -69,73 +70,77 @@ def worker_loop(worker_id, poll_interval=1.0):
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
     print(f"[worker {worker_id}] starting loop, pid={os.getpid()}")
+    
     while not SHUTDOWN:
+        job = claim_job_for_processing()
+        if not job:
+            time.sleep(poll_interval)
+            continue
+            
+        job_id = job["id"]
+        command = job["command"]
+        print(f"[worker {worker_id}] Processing job {job_id}: {command}")
+        
+        start_time = time.time()
         try:
-            job = claim_job_for_processing()
-            if not job:
-                time.sleep(poll_interval)
-                continue
-            job_id = job["id"]
-            command = job["command"]
-            # Parse command if it's a JSON string
-            try:
-                cmd_obj = ast.literal_eval(command)
-                if isinstance(cmd_obj, dict):
-                    # Extract just the command value
-                    command = cmd_obj.get("command", command) # Get the command
-            except (ValueError, SyntaxError, TypeError):
-                # If not valid JSON or no command key, use as-is
-                pass
-
-            print(f"[worker {worker_id}] Processing job {job_id}: {command}")
-            # run command 
-            start = time.time()
-            try:
-                timeout = job.get('timeout_seconds', None)
+            # Special handling for sleep command
+            if command.startswith('sleep'):
+                try:
+                    sleep_time = int(command.split()[1]) if len(command.split()) > 1 else 1
+                    time.sleep(sleep_time)
+                    rc = 0
+                    err = None
+                except ValueError:
+                    rc = 1
+                    err = "Invalid sleep duration"
+            else:
+                # Normal command execution
+                timeout = job.get('timeout_seconds')
                 if timeout:
                     rc, err = run_with_timeout(command, timeout)
                 else:
                     res = subprocess.run(command, shell=True, text=True, capture_output=True)
                     rc = res.returncode
                     err = res.stderr if res.stderr else None
-                
-                duration = time.time() - start
 
-                if rc == 0:
-                    # Update with execution time
-                    db_update_job_state(
-                        job_id, 
-                        state='completed', 
-                        updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 
-                        locked=0,
-                        execution_time=duration
-                    )
-                    print(f"[worker {worker_id}] Job {job_id} completed in {duration:.2f}s")
-            except Exception as e:
-                rc = 1
-                err = str(e)
-            duration = time.time() - start
-
+            duration = time.time() - start_time
+            
             if rc == 0:
-                # success
-                db_update_job_state(job_id, state='completed', updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), locked=0)
+                db_update_job_state(
+                    job_id,
+                    state='completed',
+                    updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                    locked=0,
+                    execution_time=duration
+                )
                 print(f"[worker {worker_id}] Job {job_id} completed in {duration:.2f}s")
             else:
-                # failure: schedule retry or dead
-                current = get_job(job_id)
-                attempts = (current["attempts"] or 0) + 1
-                max_retries = current["max_retries"]
-                backoff_base = get_backoff_base()
-                if attempts >= max_retries:
-                    # move to DLQ
-                    db_update_job_state(job_id, state='dead', attempts=attempts, updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), locked=0, last_error=f"exit:{rc}")
+                attempts = job["attempts"] + 1
+                if attempts >= job["max_retries"]:
+                    db_update_job_state(
+                        job_id,
+                        state='dead',
+                        attempts=attempts,
+                        updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        locked=0,
+                        last_error=err
+                    )
                     print(f"[worker {worker_id}] Job {job_id} moved to DLQ after {attempts} attempts")
                 else:
-                    delay = backoff_base ** attempts
-                    next_ts = time.time() + delay
-                    db_update_job_state(job_id, state='failed', attempts=attempts, next_attempt_at=next_ts, updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), locked=0, last_error=f"exit:{rc}")
-                    print(f"[worker {worker_id}] Job {job_id} failed (rc={rc}), scheduled retry in {delay}s (attempt {attempts}/{max_retries})")
+                    next_attempt = time.time() + (2 ** attempts)
+                    db_update_job_state(
+                        job_id,
+                        state='failed',
+                        attempts=attempts,
+                        next_attempt_at=next_attempt,
+                        updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        locked=0,
+                        last_error=err
+                    )
+                    print(f"[worker {worker_id}] Job {job_id} failed (rc={rc}), scheduled retry in {2**attempts}s (attempt {attempts}/{job['max_retries']})")
+                    
         except Exception as e:
-            print(f"[worker {worker_id}] Error in loop: {e}")
-            time.sleep(1.0)
+            print(f"[worker {worker_id}] Error processing job {job_id}: {str(e)}")
+            unlock_job(job_id)
+            
     print(f"[worker {worker_id}] exiting loop")
