@@ -3,7 +3,12 @@
 
 <img width="2035" height="1349" alt="Screenshot 2025-11-07 121835" src="https://github.com/user-attachments/assets/1eff465c-c409-45a7-95a4-988df416ae2a" />
 
+
+
+
 A robust job queue system built with Python and Flask, featuring priority queues, job timeout handling, and real-time metrics dashboard.
+
+
 
 
 
@@ -54,6 +59,9 @@ python queuectl.py enqueue-cmd '{\"command\":\"sleep 5\",\"timeout_seconds\":10,
 python queuectl.py enqueue-cmd '{\"id\":\"urgent-task\",\"command\":\"echo urgent\",\"priority\":5}'
 ```
 
+<img width="1266" height="488" alt="Screenshot 2025-11-07 122114" src="https://github.com/user-attachments/assets/8b2c4e79-b344-455f-992c-b85a36419649" />
+
+
 ### 2. Manage Workers
 
 ```powershell
@@ -64,11 +72,20 @@ python queuectl.py worker start --count 2
 python queuectl.py worker stop
 ```
 
+
+<img width="1392" height="733" alt="Screenshot 2025-11-07 122132" src="https://github.com/user-attachments/assets/c9554264-ea16-470e-a301-205ec09f263d" />
+
+
+
 ### 3. View Status
 
 ```powershell
 python queuectl.py status
 ```
+This is How the Queuue CLI Looks like 
+
+<img width="727" height="602" alt="Screenshot 2025-11-07 122102" src="https://github.com/user-attachments/assets/45ff5798-03bc-46f4-8aef-8886fdf40fbb" />
+
 
 ### 4. Start Dashboard
 
@@ -164,6 +181,8 @@ Default settings can be modified using:
 python queuectl.py config set max-retries 5
 python queuectl.py config set backoff-base 2
 ```
+
+
 
 ## License
 
