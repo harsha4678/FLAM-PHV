@@ -24,6 +24,46 @@ def _signal_handler(signum, frame):
     SHUTDOWN = True
     print(f"[worker] received signal {signum}, shutting down after current job...")
 
+def run_with_timeout(cmd, timeout):
+    """Run command with timeout"""
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return process.returncode, stderr.decode()
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return -1, "Job timed out"
+
+def claim_job_for_processing(timeout_seconds=5):
+    """Modified to consider priority"""
+    now = time.time()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.cursor()
+        # Order by priority DESC, then created_at
+        cur.execute("""
+            SELECT * FROM jobs 
+            WHERE locked = 0 
+            AND next_attempt_at <= ? 
+            AND state IN ('pending', 'failed') 
+            ORDER BY priority DESC, created_at 
+            LIMIT 1
+        """, (now,))
+        row = cur.fetchone()
+        if not row:
+            conn.commit()
+            return None
+        job = dict(row)
+        cur.execute(
+            "UPDATE jobs SET locked = 1, state = 'processing', updated_at = ? WHERE id = ?",
+            (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now)), job["id"])
+        )
+        conn.commit()
+        return job
+    finally:
+        conn.close()
+
 def worker_loop(worker_id, poll_interval=1.0):
     global SHUTDOWN
     signal.signal(signal.SIGINT, _signal_handler)
@@ -51,9 +91,26 @@ def worker_loop(worker_id, poll_interval=1.0):
             # run command 
             start = time.time()
             try:
-                res = subprocess.run(command, shell=True, text=True, capture_output=True)
-                rc = res.returncode
-                err = res.stderr if res.stderr else None
+                timeout = job.get('timeout_seconds', None)
+                if timeout:
+                    rc, err = run_with_timeout(command, timeout)
+                else:
+                    res = subprocess.run(command, shell=True, text=True, capture_output=True)
+                    rc = res.returncode
+                    err = res.stderr if res.stderr else None
+                
+                duration = time.time() - start
+
+                if rc == 0:
+                    # Update with execution time
+                    db_update_job_state(
+                        job_id, 
+                        state='completed', 
+                        updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 
+                        locked=0,
+                        execution_time=duration
+                    )
+                    print(f"[worker {worker_id}] Job {job_id} completed in {duration:.2f}s")
             except Exception as e:
                 rc = 1
                 err = str(e)

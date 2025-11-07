@@ -2,7 +2,6 @@
 import sqlite3
 import threading
 import time
-
 from contextlib import contextmanager
 
 DB_FILE = "queuectl.db"
@@ -73,12 +72,19 @@ def insert_job(job):
             job.get("max_retries", 3), job["created_at"], job["updated_at"], job.get("next_attempt_at", time.time()), 0, job.get("last_error")
         ))
 
-def list_jobs_by_state(state=None):
+def list_jobs_by_state(state=None, limit=None):
+    """List jobs filtered by state with optional limit"""
     with _get_conn_cursor() as cur:
         if state:
-            cur.execute("SELECT * FROM jobs WHERE state = ? ORDER BY created_at", (state,))
+            cur.execute(
+                "SELECT * FROM jobs WHERE state = ? ORDER BY created_at DESC LIMIT ?",
+                (state, limit or -1)
+            )
         else:
-            cur.execute("SELECT * FROM jobs ORDER BY created_at")
+            cur.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
+                (limit or -1,)
+            )
         return [dict(row) for row in cur.fetchall()]
 
 def get_job(job_id):
@@ -132,3 +138,51 @@ def unlock_job(job_id):
 def delete_job(job_id):
     with _get_conn_cursor() as cur:
         cur.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+
+def all_metrics():
+    with _get_conn_cursor() as cur:
+        # Get job counts by state
+        cur.execute("""
+            SELECT state, COUNT(*) as count 
+            FROM jobs 
+            GROUP BY state
+        """)
+        metrics = {row['state']: row['count'] for row in cur.fetchall()}
+        
+        # Get average execution times for completed jobs
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total_completed,
+                AVG(execution_time) as avg_time,
+                MIN(execution_time) as min_time,
+                MAX(execution_time) as max_time
+            FROM jobs 
+            WHERE state = 'completed' AND execution_time IS NOT NULL
+        """)
+        stats = dict(cur.fetchone())
+        
+        # Combine all metrics
+        return {
+            'pending': metrics.get('pending', 0),
+            'processing': metrics.get('processing', 0),
+            'completed': metrics.get('completed', 0),
+            'failed': metrics.get('failed', 0),
+            'dead': metrics.get('dead', 0),
+            'avg_time': round(stats['avg_time'] or 0, 2),
+            'min_time': round(stats['min_time'] or 0, 2),
+            'max_time': round(stats['max_time'] or 0, 2)
+        }
+
+# Add execution_time column
+def initialize():
+    with _get_conn_cursor() as cur:
+        # ...existing initialization code...
+        
+        # Add execution_time and priority columns if they don't exist
+        cur.execute("PRAGMA table_info(jobs)")
+        columns = {row['name'] for row in cur.fetchall()}
+        
+        if 'execution_time' not in columns:
+            cur.execute("ALTER TABLE jobs ADD COLUMN execution_time REAL")
+        if 'priority' not in columns:
+            cur.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER DEFAULT 0")
