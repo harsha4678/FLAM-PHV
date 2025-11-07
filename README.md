@@ -59,7 +59,7 @@ python queuectl.py enqueue-cmd '{\"command\":\"sleep 5\",\"timeout_seconds\":10,
 python queuectl.py enqueue-cmd '{\"id\":\"urgent-task\",\"command\":\"echo urgent\",\"priority\":5}'
 ```
 
-<img width="1266" height="488" alt="Screenshot 2025-11-07 122114" src="https://github.com/user-attachments/assets/8b2c4e79-b344-455f-992c-b85a36419649" />
+<img width="640" height="320" alt="Screenshot 2025-11-07 122114" src="https://github.com/user-attachments/assets/8b2c4e79-b344-455f-992c-b85a36419649" />
 
 
 ### 2. Manage Workers
