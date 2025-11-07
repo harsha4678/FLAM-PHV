@@ -1,6 +1,16 @@
 # FLAM PHV - Job Queue System
 
+
+<img width="2035" height="1349" alt="Screenshot 2025-11-07 121835" src="https://github.com/user-attachments/assets/1eff465c-c409-45a7-95a4-988df416ae2a" />
+
 A robust job queue system built with Python and Flask, featuring priority queues, job timeout handling, and real-time metrics dashboard.
+
+
+
+https://github.com/user-attachments/assets/219477ae-e419-4693-a89e-fb8b5fc47089
+
+
+
 
 ## Features
 
@@ -161,5 +171,5 @@ MIT License
 
 ## Contributors
 
-[harsha4678]
+Harsha
 [perumallaharshavardhan6@gmail.com]
