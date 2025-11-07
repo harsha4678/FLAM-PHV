@@ -1,13 +1,13 @@
 # FLAM PHV - Job Queue System
- 1.A robust job queue system built with Python and Flask, featuring priority queues, job timeout handling, and real-time metrics dashboard.  
- 2.Manages background jobs with worker processes, handle retries using exponential backoff, and maintain a Dead Letter Queue (DLQ) for permanently failed jobs.
- 
+A robust job queue system built with Python and Flask, featuring priority queues, job timeout handling, and real-time metrics dashboard.  
+Manages background jobs with worker processes, handle retries using exponential backoff, and maintain a Dead Letter Queue (DLQ) for permanently failed jobs.
+
+
 <img width="1080" height="1720" alt="Screenshot 2025-11-07 121835" src="https://github.com/user-attachments/assets/1eff465c-c409-45a7-95a4-988df416ae2a" />
 
 
 
-
-
+## Working Demo Video  of the Project 
 
 
 
