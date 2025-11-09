@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Bézier Curve with Physics</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #f5f5f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 1.8em;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        
+        .info {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            background: #ffffff;
+            cursor: move;
+            display: block;
+        }
+        
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        
+        .control-group label {
+            color: #555;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        
+        input[type="range"] {
+            width: 120px;
+            vertical-align: middle;
+        }
+        
+        button {
+            background: white;
+            color: #555;
+            border: 1px solid #ddd;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        
+        button:hover {
+            background: #f8f8f8;
+            border-color: #bbb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Interactive Bézier Rope Physics</h1>
+        <p class="info">Move your mouse to control the rope • Dynamic spring physics with tangent visualization</p>
+        <canvas id="canvas" width="900" height="600"></canvas>
+        <div class="controls">
+            <div class="control-group">
+                <label>Spring: <span id="springValue">0.08</span></label>
+                <input type="range" id="spring" min="0.01" max="0.2" step="0.01" value="0.08">
+            </div>
+            <div class="control-group">
+                <label>Damping: <span id="dampingValue">0.85</span></label>
+                <input type="range" id="damping" min="0.5" max="0.99" step="0.01" value="0.85">
+            </div>
+            <div class="control-group">
+                <button id="reset">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============ MATH UTILITIES ============
+        class Vector2 {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            
+            add(v) {
+                return new Vector2(this.x + v.x, this.y + v.y);
+            }
+            
+            subtract(v) {
+                return new Vector2(this.x - v.x, this.y - v.y);
+            }
+            
+            multiply(scalar) {
+                return new Vector2(this.x * scalar, this.y * scalar);
+            }
+            
+            magnitude() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+            
+            normalize() {
+                const mag = this.magnitude();
+                if (mag === 0) return new Vector2(0, 0);
+                return new Vector2(this.x / mag, this.y / mag);
+            }
+        }
+
+        // ============ CONTROL POINT WITH PHYSICS ============
+        class ControlPoint {
+            constructor(x, y, fixed = false) {
+                this.position = new Vector2(x, y);
+                this.velocity = new Vector2(0, 0);
+                this.target = new Vector2(x, y);
+                this.fixed = fixed;
+            }
+            
+            update(springK, damping) {
+                if (this.fixed) return;
+                
+                // Spring physics: F = -k(x - target) - damping * velocity
+                const displacement = this.position.subtract(this.target);
+                const springForce = displacement.multiply(-springK);
+                const dampingForce = this.velocity.multiply(-damping);
+                
+                const acceleration = springForce.add(dampingForce);
+                
+                // Update velocity and position
+                this.velocity = this.velocity.add(acceleration);
+                this.position = this.position.add(this.velocity);
+            }
+            
+            setTarget(x, y) {
+                this.target = new Vector2(x, y);
+            }
+        }
+
+        // ============ BEZIER CURVE MATH ============
+        class BezierCurve {
+            constructor(p0, p1, p2, p3) {
+                this.p0 = p0;
+                this.p1 = p1;
+                this.p2 = p2;
+                this.p3 = p3;
+            }
+            
+            // Cubic Bézier: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+            evaluate(t) {
+                const t2 = t * t;
+                const t3 = t2 * t;
+                const mt = 1 - t;
+                const mt2 = mt * mt;
+                const mt3 = mt2 * mt;
+                
+                const x = mt3 * this.p0.position.x +
+                         3 * mt2 * t * this.p1.position.x +
+                         3 * mt * t2 * this.p2.position.x +
+                         t3 * this.p3.position.x;
+                         
+                const y = mt3 * this.p0.position.y +
+                         3 * mt2 * t * this.p1.position.y +
+                         3 * mt * t2 * this.p2.position.y +
+                         t3 * this.p3.position.y;
+                
+                return new Vector2(x, y);
+            }
+            
+            // Derivative: B'(t) = 3(1-t)²(P₁-P₀) + 6(1-t)t(P₂-P₁) + 3t²(P₃-P₂)
+            tangent(t) {
+                const mt = 1 - t;
+                const mt2 = mt * mt;
+                const t2 = t * t;
+                
+                const term1 = this.p1.position.subtract(this.p0.position).multiply(3 * mt2);
+                const term2 = this.p2.position.subtract(this.p1.position).multiply(6 * mt * t);
+                const term3 = this.p3.position.subtract(this.p2.position).multiply(3 * t2);
+                
+                return term1.add(term2).add(term3).normalize();
+            }
+            
+            sample(step = 0.01) {
+                const points = [];
+                for (let t = 0; t <= 1; t += step) {
+                    points.push(this.evaluate(t));
+                }
+                return points;
+            }
+        }
+
+        // ============ RENDERER ============
+        class Renderer {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+            }
+            
+            clear() {
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+            
+            drawCurve(points) {
+                if (points.length < 2) return;
+                
+                // Main curve - simple dark gray
+                this.ctx.strokeStyle = '#2c3e50';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(points[0].x, points[0].y);
+                
+                for (let i = 1; i < points.length; i++) {
+                    this.ctx.lineTo(points[i].x, points[i].y);
+                }
+                this.ctx.stroke();
+            }
+            
+            drawTangents(curve, step = 0.1, length = 30) {
+                this.ctx.strokeStyle = '#95a5a6';
+                this.ctx.lineWidth = 1.5;
+                
+                for (let t = 0; t <= 1; t += step) {
+                    const point = curve.evaluate(t);
+                    const tangent = curve.tangent(t);
+                    const end = point.add(tangent.multiply(length));
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(point.x, point.y);
+                    this.ctx.lineTo(end.x, end.y);
+                    this.ctx.stroke();
+                    
+                    // Tangent endpoint
+                    this.ctx.fillStyle = '#7f8c8d';
+                    this.ctx.beginPath();
+                    this.ctx.arc(end.x, end.y, 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+            }
+            
+            drawControlPoints(points) {
+                points.forEach((point, i) => {
+                    const isEndpoint = point.fixed;
+                    
+                    // Control point
+                    this.ctx.fillStyle = isEndpoint ? '#3498db' : '#e74c3c';
+                    this.ctx.beginPath();
+                    this.ctx.arc(point.position.x, point.position.y, 8, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    // Border
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                });
+            }
+            
+            drawControlLines(points) {
+                this.ctx.strokeStyle = '#bdc3c7';
+                this.ctx.lineWidth = 1;
+                this.ctx.setLineDash([4, 4]);
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(points[0].position.x, points[0].position.y);
+                this.ctx.lineTo(points[1].position.x, points[1].position.y);
+                this.ctx.stroke();
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(points[2].position.x, points[2].position.y);
+                this.ctx.lineTo(points[3].position.x, points[3].position.y);
+                this.ctx.stroke();
+                
+                this.ctx.setLineDash([]);
+            }
+        }
+
+        // ============ MAIN APPLICATION ============
+        class BezierRopeApp {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.renderer = new Renderer(this.canvas);
+                
+                // Initialize control points
+                this.initControlPoints();
+                
+                // Physics parameters
+                this.springK = 0.05;
+                this.damping = 0.92;
+                
+                // Mouse state
+                this.mouse = new Vector2(this.canvas.width / 2, this.canvas.height / 2);
+                this.mouseInfluence = 150;
+                
+                this.setupEventListeners();
+                this.animate();
+            }
+            
+            initControlPoints() {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                
+                this.points = [
+                    new ControlPoint(w * 0.2, h * 0.5, true),   // P0 - fixed
+                    new ControlPoint(w * 0.4, h * 0.5, false),  // P1 - dynamic
+                    new ControlPoint(w * 0.6, h * 0.5, false),  // P2 - dynamic
+                    new ControlPoint(w * 0.8, h * 0.5, true)    // P3 - fixed
+                ];
+            }
+            
+            setupEventListeners() {
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.mouse.x = e.clientX - rect.left;
+                    this.mouse.y = e.clientY - rect.top;
+                });
+                
+                document.getElementById('spring').addEventListener('input', (e) => {
+                    this.springK = parseFloat(e.target.value);
+                    document.getElementById('springValue').textContent = this.springK.toFixed(2);
+                });
+                
+                document.getElementById('damping').addEventListener('input', (e) => {
+                    this.damping = parseFloat(e.target.value);
+                    document.getElementById('dampingValue').textContent = this.damping.toFixed(2);
+                });
+                
+                document.getElementById('reset').addEventListener('click', () => {
+                    this.initControlPoints();
+                });
+            }
+            
+            updatePhysics() {
+                // Update dynamic control points based on mouse position
+                this.points.forEach((point, i) => {
+                    if (!point.fixed) {
+                        // Calculate distance from mouse
+                        const toMouse = this.mouse.subtract(point.position);
+                        const distance = toMouse.magnitude();
+                        
+                        // Apply mouse influence with falloff
+                        if (distance < this.mouseInfluence) {
+                            const influence = 1 - (distance / this.mouseInfluence);
+                            const offset = toMouse.multiply(influence * 0.3);
+                            point.setTarget(
+                                point.position.x + offset.x,
+                                point.position.y + offset.y
+                            );
+                        } else {
+                            // Return to default position
+                            const defaultY = this.canvas.height / 2;
+                            const defaultX = this.canvas.width * (0.3 + i * 0.15);
+                            point.setTarget(defaultX, defaultY);
+                        }
+                    }
+                    
+                    point.update(this.springK, this.damping);
+                });
+            }
+            
+            render() {
+                this.renderer.clear();
+                
+                const curve = new BezierCurve(
+                    this.points[0],
+                    this.points[1],
+                    this.points[2],
+                    this.points[3]
+                );
+                
+                const curvePoints = curve.sample(0.01);
+                
+                this.renderer.drawControlLines(this.points);
+                this.renderer.drawCurve(curvePoints);
+                this.renderer.drawTangents(curve, 0.15, 35);
+                this.renderer.drawControlPoints(this.points);
+            }
+            
+            animate() {
+                this.updatePhysics();
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        // Start the application
+        window.addEventListener('load', () => {
+            new BezierRopeApp();
+        });
+    </script>
+</body>
+</html>

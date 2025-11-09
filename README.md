@@ -93,6 +93,31 @@ python dashboard.py
 # Access at http://localhost:5000
 ```
 
+## Project Structure
+
+```
+FLAM PHV/ 📁
+│
+├── 📄 queuectl.py          # Main CLI interface for queue management
+├── 📄 worker.py            # Worker process implementation
+├── 📄 dashboard.py         # Web dashboard for monitoring
+├── 📄 db.py               # Database operations and schema
+│
+├── 📁 templates/          # Dashboard HTML templates
+│   ├── 📄 index.html
+│   
+├── 📁 tests/             # Test cases
+│   ├── 📄 test_worker.py
+│   ├── 📄 test_queue.py
+│   └── 📄 test_db.py
+│
+├── 📄 requirements.txt    # Project dependencies
+|── 📄 config.py           # Configuration setting
+|── 📄 utils.py           # Utility functions
+├── 📄 DESIGN.md             # System design
+└── 📄 README.md          # Documentation
+```
+
 ## Architecture Overview
 
 ### Components
